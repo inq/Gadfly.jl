@@ -661,8 +661,8 @@ function render(guide::XTicks, theme::Gadfly.Theme,
     end
 
     return [PositionedGuide(contexts, 10,
-                            bottom_guide_position),
-            PositionedGuide([grid_lines], 0, under_guide_position)]
+                            bottom_guide_position)]
+#            PositionedGuide([grid_lines], 0, under_guide_position)]
 end
 
 
