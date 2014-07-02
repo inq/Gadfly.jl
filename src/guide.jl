@@ -590,9 +590,12 @@ function render(guide::XTicks, theme::Gadfly.Theme,
     label_widths = [width for (width, height) in label_sizes]
     label_heights = [height for (width, height) in label_sizes]
 
-    padding = 1mm
+    padding = theme.guide_padding
 
     hlayout = ctxpromise() do draw_context
+        if(theme.use_odd_label)
+          tickvisibility[2:2:size(tickvisibility)[1]] = false
+        end
         static_labels = compose!(
             context(withoutjs=true),
             text(ticks[tickvisibility], [1h - padding], labels[tickvisibility],

@@ -54,6 +54,39 @@ function format_fixed(x::FloatingPoint, precision::Integer)
     bytestring(ss)
 end
 
+function format_kmg(x::FloatingPoint, precition::Integer = 2)
+    if x == Inf
+        return "∞"
+    elseif x == -Inf
+        return "-∞"
+    elseif isnan(x)
+        return "NaN"
+    end
+
+    sign = ""
+    if x < 0
+      sign = "-"
+      x *= -1
+    end
+    
+    kmg = ""
+    if x >= 1000000000
+      kmg = "G"
+      x /= 1000000000
+    elseif x >= 1000000
+      kmg = "M"
+      x /= 1000000
+    elseif x >= 1000
+      kmg = "k"
+      x /= 1000
+    end
+    num = convert(Integer, round(x * 100)) / 100
+    if num >= 10 || num == round(num)
+      num = convert(Integer, round(num))
+    end
+    string(sign, num, kmg)
+end
+
 
 # Print a floating point number in scientific notation at fixed precision. Sort of equivalent
 # to @sprintf("%0.$(precision)e", x), but prettier printing.
@@ -138,8 +171,9 @@ function formatter{T<:FloatingPoint}(xs::AbstractArray{T}; fmt=:auto)
         # SHORTEST_SINGLE rather than SHORTEST to crudely round away tiny innacuracies
         Base.Grisu.@grisu_ccall delta Base.Grisu.SHORTEST_SINGLE 0
         precision = max(0, Base.Grisu.LEN[1] - Base.Grisu.POINT[1])
-
         return x -> format_fixed(x, precision)
+    elseif fmt == :kmg
+        return x -> format_kmg(x)
     elseif fmt == :scientific
         Base.Grisu.@grisu_ccall delta Base.Grisu.SHORTEST_SINGLE 0
         delta_magnitude = Base.Grisu.POINT[1]

@@ -35,6 +35,8 @@ end
 
 
 @varset Theme begin
+    use_odd_label,         Bool,            false
+
     # If the color aesthetic is not mapped to anything, this is the color that
     # is used.
     default_color,         ColorOrNothing,  LCHab(70, 60, 240)
@@ -63,6 +65,8 @@ end
 
     # Width of grid lines
     grid_line_width,       Measure,         0.2mm
+    
+    guide_padding,         Measure,         -5mm
 
     # Font name, size, and color used for tick labels, entries in keys, etc.
     minor_label_font,      String,          label_font_desc
