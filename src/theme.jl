@@ -60,6 +60,9 @@ end
     grid_color,            ColorOrNothing,  color("#D0D0E0")
     grid_strokedash,       Maybe(Vector),   [0.5mm, 0.5mm]
 
+    line_strokedash,       Maybe(Vector),   []
+
+
     # Grid lines for focused item.
     grid_color_focused,    ColorOrNothing,  color("#A0A0A0")
 

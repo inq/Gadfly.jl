@@ -753,7 +753,7 @@ function render(guide::YTicks, theme::Gadfly.Theme,
     label_sizes = text_extents(theme.minor_label_font,
                                theme.minor_label_font_size,
                                labels...)
-    label_widths = [width for (width, height) in label_sizes]
+    label_widths = [width * 1.5 for (width, height) in label_sizes]
     label_heights = [height for (width, height) in label_sizes]
     padding = 1mm
 
