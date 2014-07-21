@@ -22,9 +22,9 @@ using Datetime
 using JSON
 
 import Iterators
-import Iterators: distinct, drop
+import Iterators: distinct, drop, chain
 import Compose: draw, hstack, vstack, gridstack
-import Base: copy, push!, start, next, done, has, show, getindex, cat,
+import Base: copy, push!, start, next, done, show, getindex, cat,
              writemime, isfinite, display
 
 export Plot, Layer, Theme, Scale, Coord, Geom, Guide, Stat, render, plot,
@@ -33,7 +33,7 @@ export Plot, Layer, Theme, Scale, Coord, Geom, Guide, Stat, render, plot,
 
 
 # Re-export some essentials from Compose
-export SVGJS, SVG, PNG, PS, PDF, draw, inch, mm, cm, px, pt, color, vstack, hstack
+export SVGJS, SVG, PGF, PNG, PS, PDF, draw, inch, mm, cm, px, pt, color, vstack, hstack
 
 
 # Define an XML namespace for custom attributes
@@ -428,7 +428,7 @@ function render(plot::Plot)
             end
 
             for (k, v) in layer.mapping
-                setfield!(datas[i], k, eval_plot_mapping(layer.data_source, v))
+                set_mapped_data!(datas[i], layer.data_source, k, v)
             end
         end
     end
@@ -449,7 +449,12 @@ function render(plot::Plot)
         union!(used_aesthetics, element_aesthetics(stat))
     end
 
-    defined_unused_aesthetics = setdiff(set(keys(plot.mapping)), used_aesthetics)
+    mapped_aesthetics = set(keys(plot.mapping))
+    for layer in plot.layers
+        union!(mapped_aesthetics, keys(layer.mapping))
+    end
+
+    defined_unused_aesthetics = setdiff(mapped_aesthetics, used_aesthetics)
     if !isempty(defined_unused_aesthetics)
         warn("The following aesthetics are mapped, but not used by any geometry:\n    ",
              join([string(a) for a in defined_unused_aesthetics], ", "))
@@ -459,6 +464,7 @@ function render(plot::Plot)
     for scale in plot.scales
         union!(scaled_aesthetics, element_aesthetics(scale))
     end
+
 
     # Only one scale can be applied to an aesthetic (without getting some weird
     # and incorrect results), so we organize scales into a dict.
@@ -472,7 +478,7 @@ function render(plot::Plot)
     unscaled_aesthetics = setdiff(used_aesthetics, scaled_aesthetics)
 
     # Add default scales for statistics.
-    for stat in layer_stats
+    for stat in chain(plot.statistics, layer_stats)
         for scale in default_scales(stat)
             # Use the statistics default scale only when it covers some
             # aesthetic that is not already scaled.
@@ -488,11 +494,29 @@ function render(plot::Plot)
 
     # Assign scales to mapped aesthetics first.
     for var in unscaled_aesthetics
-        if !haskey(plot.mapping, var)
+        if !in(var, mapped_aesthetics)
             continue
         end
 
-        t = classify_data(getfield(plot.data, var))
+        var_data = getfield(plot.data, var)
+        if var_data == nothing
+            for data in datas
+                var_layer_data = getfield(data, var)
+                if var_layer_data != nothing
+                    var_data = var_layer_data
+                    break
+                end
+            end
+        end
+
+        if var_data == nothing
+            continue
+        end
+
+        t = classify_data(var_data)
+        if t == nothing
+
+        end
 
         if haskey(default_aes_scales[t], var)
             scale = default_aes_scales[t][var]
@@ -571,7 +595,7 @@ function render(plot::Plot)
     end
 
     function mapped_and_used(vs)
-        any([haskey(plot.mapping, v) && in(v, used_aesthetics) for v in vs])
+        any([in(v, mapped_aesthetics) && in(v, used_aesthetics) for v in vs])
     end
 
     function choose_name(vs, fallback)
@@ -580,6 +604,15 @@ function render(plot::Plot)
                 return plot.data.titles[v]
             end
         end
+
+        for v in vs
+            for data in datas
+                if haskey(data.titles, v)
+                    return data.titles[v]
+                end
+            end
+        end
+
         fallback
     end
 
@@ -675,14 +708,15 @@ function render_prepared(plot::Plot,
                          guides::Vector{GuideElement};
                          table_only=false)
     # III. Coordinates
-    plot_context = Coord.apply_coordinate(plot.coord, plot_aes, layer_aess...)
+    plot_context = Coord.apply_coordinate(plot.coord, vcat(plot_aes,
+                                          layer_aess), scales)
 
     # IV. Geometries
     themes = Theme[layer.theme === nothing ? plot.theme : layer.theme
                    for layer in plot.layers]
 
     compose!(plot_context,
-             [render(layer.geom, theme, aes)
+             [render(layer.geom, theme, aes, scales)
               for (layer, aes, theme) in zip(plot.layers, layer_aess, themes)]...)
 
     # V. Guides
@@ -694,7 +728,8 @@ function render_prepared(plot::Plot,
         end
     end
 
-    tbl = Guide.layout_guides(plot_context, plot.theme, guide_contexts...)
+    tbl = Guide.layout_guides(plot_context, plot.coord,
+                              plot.theme, guide_contexts...)
     if table_only
         return tbl
     end

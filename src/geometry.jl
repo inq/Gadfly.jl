@@ -9,9 +9,10 @@ using Gadfly
 
 import Compose.combine # Prevent DataFrame.combine from taking over.
 import Gadfly: render, element_aesthetics, inherit, escape_id,
-               default_statistic, setfield!, set
+               default_statistic, setfield!, set, ScaleElement,
+               svg_color_class_from_label
 import Iterators
-import Iterators: cycle, product, distinct, take, chain, repeated
+import Iterators: cycle, product, distinct, takestrict, chain, repeated
 
 
 # Geometry that renders nothing.
@@ -20,7 +21,8 @@ end
 
 const nil = Nil
 
-function render(geom::Nil, theme::Gadfly.Theme, aes::Gadfly.Aesthetics)
+function render(geom::Nil, theme::Gadfly.Theme, aes::Gadfly.Aesthetics,
+                scales::Dict{Symbol, ScaleElement})
 end
 
 

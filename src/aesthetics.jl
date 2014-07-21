@@ -250,7 +250,8 @@ end
 
 # work arround 0.2 weirdness
 function cat_aes_var!(a::DataArray, b::AbstractArray)
-    da = DataArray(eltype(a), length(a) + length(b))
+    T = promote_type(eltype(a), eltype(b))
+    da = DataArray(T, length(a) + length(b))
     copy!(da, [a..., b...])
     return da
 end
@@ -298,14 +299,13 @@ function aes_by_xy_group(aes::Aesthetics)
     yrefs = aes.ygroup === nothing ? [1] : aes.ygroup
 
     aes_grid = Array(Aesthetics, n, m)
-    staging = Array(Vector{Any}, n, m)
+    staging = Array(DataArray, n, m)
     for i in 1:n, j in 1:m
         aes_grid[i, j] = Aesthetics()
-        staging[i, j] = Array(Any, 0)
     end
 
     function make_pooled_data_array{T, U, V}(::Type{PooledDataArray{T,U,V}},
-                                          arr::Array)
+                                          arr::AbstractArray)
         PooledDataArray(convert(Array{T}, arr))
     end
 
@@ -332,7 +332,7 @@ function aes_by_xy_group(aes::Aesthetics)
             end
 
             for i in 1:n, j in 1:m
-                empty!(staging[i, j])
+                staging[i, j] = DataArray(eltype(vals), 0)
             end
 
             for (i, j, v) in zip(Iterators.cycle(yrefs), Iterators.cycle(xrefs), vals)
@@ -344,7 +344,7 @@ function aes_by_xy_group(aes::Aesthetics)
                     setfield!(aes_grid[i, j], var,
                               make_pooled_data_array(typeof(vals), staging[i, j]))
                 else
-                    if applicable(convert, typeof(vals), staging[i, j])
+                    if !applicable(convert, typeof(vals), staging[i, j])
                         T = eltype(vals)
                         if T <: ColorValue T = ColorValue end
                         da = DataArray(T, length(staging[i, j]))

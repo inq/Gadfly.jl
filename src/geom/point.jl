@@ -22,7 +22,8 @@ end
 # Returns:
 #   A compose Form.
 #
-function render(geom::PointGeometry, theme::Gadfly.Theme, aes::Gadfly.Aesthetics)
+function render(geom::PointGeometry, theme::Gadfly.Theme,
+                aes::Gadfly.Aesthetics, scales::Dict{Symbol, ScaleElement})
     Gadfly.assert_aesthetics_defined("Geom.point", aes, :x, :y)
     Gadfly.assert_aesthetics_equal_length("Geom.point", aes,
                                           element_aesthetics(geom)...)
@@ -47,8 +48,7 @@ function render(geom::PointGeometry, theme::Gadfly.Theme, aes::Gadfly.Aesthetics
     else
         compose!(ctx,
             stroke(map(theme.discrete_highlight_color, aes.color)),
-            svgclass([@sprintf("color_%s",
-                               escape_id(aes.color_label([c])[1]))
+            svgclass([svg_color_class_from_label(escape_id(aes.color_label([c])[1]))
                       for c in aes.color]))
     end
 

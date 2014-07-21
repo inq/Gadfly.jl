@@ -12,6 +12,13 @@ import Gadfly: element_aesthetics, isconcrete, concrete_length,
 
 include("color.jl")
 
+
+# Return true if var is categorical.
+function iscategorical(scales::Dict{Symbol, Gadfly.ScaleElement}, var::Symbol)
+    return haskey(scales, var) && isa(scales[var], DiscreteScale)
+end
+
+
 # Apply some scales to data in the given order.
 #
 # Args:
@@ -108,7 +115,7 @@ const asinh_transform =
 
 function sqrt_formatter(xs::AbstractArray; format=:plain)
     fmt = formatter(xs, fmt=format)
-    [@sprintf("√%s", fmt(x)) for x in xs]
+    [@sprintf("%s<sup>2</sup>", fmt(x)) for x in xs]
 end
 
 const sqrt_transform = ContinuousScaleTransform(sqrt, x -> x^2, sqrt_formatter)
@@ -208,14 +215,7 @@ function apply_scale(scale::ContinuousScale,
             end
 
             ds = DataArray(T, length(getfield(data, var)))
-            for (i, d) in enumerate(getfield(data, var))
-                if isconcrete(d)
-                    ds[i] = scale.trans.f(d)
-                    i += 1
-                else
-                    ds[i] = d
-                end
-            end
+            apply_scale_typed!(ds, getfield(data, var), scale)
 
             setfield!(aes, var, ds)
 
@@ -250,6 +250,16 @@ function apply_scale(scale::ContinuousScale,
     end
 end
 
+function apply_scale_typed!(ds, field, scale)
+    for (i, d) in enumerate(field)
+        if isconcrete(d)
+            ds[i] = scale.trans.f(d)
+            i += 1
+        else
+            ds[i] = d
+        end
+    end
+end
 
 # Reorder the levels of a pooled data array
 function reorder_levels(da::PooledDataArray, order::AbstractVector)

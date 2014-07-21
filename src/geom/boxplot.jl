@@ -13,7 +13,7 @@ element_aesthetics(::BoxplotGeometry) = [:x, :y, :color,
 default_statistic(::BoxplotGeometry) = Gadfly.Stat.boxplot()
 
 function render(geom::BoxplotGeometry, theme::Gadfly.Theme,
-                aes::Gadfly.Aesthetics)
+                aes::Gadfly.Aesthetics, scales::Dict{Symbol, ScaleElement})
     Gadfly.assert_aesthetics_defined("Geom.bar", aes,
                                      :lower_fence, :lower_hinge,
                                      :upper_hinge, :upper_fence,)
@@ -29,8 +29,8 @@ function render(geom::BoxplotGeometry, theme::Gadfly.Theme,
     n = length(aes.lower_hinge)
     bw = 1w / n - theme.boxplot_spacing # boxplot width
     fw = 2/3 * bw # fence width
-    xs = [Measure(cx=x) for x in take(cycle(aes.x), n)]
-    cs = take(cycle(aes.color), n)
+    xs = [Measure(cx=x) for x in takestrict(cycle(aes.x), n)]
+    cs = takestrict(cycle(aes.color), n)
 
     # We allow lower_hinge > upper_hinge, and lower_fence > upper_fence. So we
     # need to organize them for drawing here

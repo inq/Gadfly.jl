@@ -16,7 +16,7 @@ end
 const line = LineGeometry
 
 
-function contour(; n=15, samples=150, preserve_order=false)
+function contour(; n=15, samples=150, preserve_order=true)
     return LineGeometry(Gadfly.Stat.contour(n=n, samples=samples),
                                             preserve_order=preserve_order)
 end
@@ -63,7 +63,8 @@ end
 # Returns:
 #   A compose Form.
 #
-function render(geom::LineGeometry, theme::Gadfly.Theme, aes::Gadfly.Aesthetics)
+function render(geom::LineGeometry, theme::Gadfly.Theme, aes::Gadfly.Aesthetics,
+                scales::Dict{Symbol, ScaleElement})
     Gadfly.assert_aesthetics_defined("Geom.line", aes, :x, :y)
     Gadfly.assert_aesthetics_equal_length("Geom.line", aes,
                                           element_aesthetics(geom)...)
@@ -90,8 +91,8 @@ function render(geom::LineGeometry, theme::Gadfly.Theme, aes::Gadfly.Aesthetics)
             end
         end
 
-        classes = [@sprintf("geometry color_%s", escape_id(aes.color_label([c])[1]))
-                   for c in keys(points)]
+        classes = [string("geometry ", svg_color_class_from_label(aes.color_label([c])[1]))
+                   for (c, g) in keys(points)]
 
         ctx = compose!(ctx, Compose.line(collect(values(points))),
                       stroke(collect(map(first, keys(points)))),
@@ -124,7 +125,7 @@ function render(geom::LineGeometry, theme::Gadfly.Theme, aes::Gadfly.Aesthetics)
             end
         end
 
-        classes = [@sprintf("geometry color_%s", escape_id(aes.color_label([c])[1]))
+        classes = [string("geometry ", svg_color_class_from_label(aes.color_label([c])[1]))
                    for c in keys(points)]
 
         ctx = compose!(ctx, Compose.line(collect(values(points))),

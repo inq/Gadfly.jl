@@ -12,9 +12,9 @@ using Loess
 
 import Gadfly: Scale, Coord, element_aesthetics, default_scales, isconcrete,
                nonzero_length, setfield!
-import StatsBase: bandwidth, kde
+import KernelDensity
 import Distributions: Uniform
-import Iterators: chain, cycle, product, partition
+import Iterators: chain, cycle, product, partition, distinct
 
 include("bincount.jl")
 
@@ -77,6 +77,13 @@ end
 
 element_aesthetics(::HistogramStatistic) = [:x]
 
+function default_scales(stat::HistogramStatistic)
+    if stat.orientation == :vertical
+        return [Gadfly.Scale.y_continuous()]
+    else
+        return [Gadfly.Scale.x_continuous()]
+    end
+end
 
 const histogram = HistogramStatistic
 
@@ -116,6 +123,7 @@ function apply_statistic(stat::HistogramStatistic,
     end
 
     if haskey(scales, var) && isa(scales[var], Scale.DiscreteScale)
+        isdiscrete = true
         x_min = minimum(values)
         x_max = maximum(values)
         d = x_max - x_min + 1
@@ -124,24 +132,35 @@ function apply_statistic(stat::HistogramStatistic,
             bincounts[x - x_min + 1] += 1
         end
     else
-        d, bincounts = choose_bin_count_1d(values,
-                                           stat.minbincount,
-                                           stat.maxbincount)
+        isdiscrete = false
+        value_set = Set(values[Bool[Gadfly.isconcrete(v) for v in values]])
+        if  length(value_set) / length(values) < 0.9
+            d, bincounts = choose_bin_count_simple(values, value_set,
+                                                   stat.minbincount,
+                                                   stat.maxbincount)
+        else
+            d, bincounts = choose_bin_count_1d(values,
+                                               stat.minbincount,
+                                               stat.maxbincount)
+        end
     end
 
     x_min = Gadfly.concrete_minimum(values)
     x_max = Gadfly.concrete_maximum(values)
-    binwidth = (x_max - x_min) / d
+    binwidth = isdiscrete ? 1 : (x_max - x_min) / d
 
     if aes.color === nothing
-        setfield!(aes, minvar, Array(Float64, d))
-        setfield!(aes, maxvar, Array(Float64, d))
         setfield!(aes, othervar, Array(Float64, d))
-
-        for j in 1:d
-            getfield(aes, minvar)[j] = x_min + (j - 1) * binwidth
-            getfield(aes, maxvar)[j] = x_min + j * binwidth
-            getfield(aes, othervar)[j] = bincounts[j]
+        if isdiscrete
+            setfield!(aes, var, collect(Int, 1:d))
+        else
+            setfield!(aes, minvar, Array(isdiscrete ? Int : Float64, d))
+            setfield!(aes, maxvar, Array(isdiscrete ? Int : Float64, d))
+            for j in 1:d
+                getfield(aes, minvar)[j] = x_min + (j - 1) * binwidth
+                getfield(aes, maxvar)[j] = x_min + j * binwidth
+                getfield(aes, othervar)[j] = bincounts[j]
+            end
         end
     else
         groups = Dict()
@@ -157,8 +176,13 @@ function apply_statistic(stat::HistogramStatistic,
             end
         end
 
-        setfield!(aes, minvar, Array(Float64, d * length(groups)))
-        setfield!(aes, maxvar, Array(Float64, d * length(groups)))
+        if isdiscrete
+            setfield!(aes, var, Array(Int, d * length(groups)))
+        else
+            setfield!(aes, minvar, Array(isdiscrete ? Int : Float64, d * length(groups)))
+            setfield!(aes, maxvar, Array(isdiscrete ? Int : Float64, d * length(groups)))
+        end
+
         setfield!(aes, othervar, Array(Float64, d * length(groups)))
         colors = Array(ColorValue, d * length(groups))
 
@@ -171,18 +195,32 @@ function apply_statistic(stat::HistogramStatistic,
                 if !Gadfly.isconcrete(x)
                     continue
                 end
-                bin = max(1, min(d, int(ceil((x - x_min) / binwidth))))
-                bincounts[bin] += 1
+                if isdiscrete
+                    bincounts[int(x)] += 1
+                else
+                    bin = max(1, min(d, int(ceil((x - x_min) / binwidth))))
+                    bincounts[bin] += 1
+                end
             end
             stack_height += bincounts[1:d]
 
-            for j in 1:d
-                idx = (i-1)*d + j
-                getfield(aes, minvar)[idx] = x_min + (j - 1) * binwidth
-                getfield(aes, maxvar)[idx] = x_min + j * binwidth
-                getfield(aes, othervar)[idx] = bincounts[j]
-                colors[idx] = c
+            if isdiscrete
+                for j in 1:d
+                    idx = (i-1)*d + j
+                    getfield(aes, var)[idx] = j
+                    getfield(aes, othervar)[idx] = bincounts[j]
+                    colors[idx] = c
+                end
+            else
+                for j in 1:d
+                    idx = (i-1)*d + j
+                    getfield(aes, minvar)[idx] = x_min + (j - 1) * binwidth
+                    getfield(aes, maxvar)[idx] = x_min + j * binwidth
+                    getfield(aes, othervar)[idx] = bincounts[j]
+                    colors[idx] = c
+                end
             end
+
         end
 
         drawmax = float64(maximum(stack_height))
@@ -213,6 +251,7 @@ const density = DensityStatistic
 
 element_aesthetics(::DensityStatistic) = [:x, :y]
 
+default_scales(::DensityStatistic) = [Gadfly.Scale.y_continuous()]
 
 function apply_statistic(stat::DensityStatistic,
                          scales::Dict{Symbol, Gadfly.ScaleElement},
@@ -231,9 +270,9 @@ function apply_statistic(stat::DensityStatistic,
         x_f64 = collect(Float64, aes.x)
         # When will stat.n ever be <= 1? Seems pointless
         # certainly its length will always be 1
-        window = stat.n > 1 ? bandwidth(x_f64) : 0.1
-        f = kde(x_f64, width=window, npoints=stat.n)
-        aes.x = f.x
+        window = stat.n > 1 ? KernelDensity.default_bandwidth(x_f64) : 0.1
+        f = KernelDensity.kde(x_f64, bandwidth=window, npoints=stat.n)
+        aes.x = collect(Float64, f.x)
         aes.y = f.density
     else
         groups = Dict()
@@ -249,8 +288,8 @@ function apply_statistic(stat::DensityStatistic,
         aes.x = Array(Float64, 0)
         aes.y = Array(Float64, 0)
         for (c, xs) in groups
-            window = stat.n > 1 ? bandwidth(xs) : 0.1
-            f = kde(xs, width=window, npoints=stat.n)
+            window = stat.n > 1 ? KernelDensity.default_bandwidth(xs) : 0.1
+            f = KernelDensity.kde(xs, bandwidth=window, npoints=stat.n)
             append!(aes.x, f.x)
             append!(aes.y, f.density)
             for _ in 1:length(f.x)
@@ -452,17 +491,16 @@ function apply_statistic(stat::TickStatistic,
                          scales::Dict{Symbol, Gadfly.ScaleElement},
                          coord::Gadfly.CoordinateElement,
                          aes::Gadfly.Aesthetics)
+
     in_group_var = symbol(string(stat.out_var, "group"))
     minval, maxval = nothing, nothing
     if getfield(aes, in_group_var) === nothing
         in_values = {}
-        categorical = true
+        categorical = (:x in stat.in_vars && Scale.iscategorical(scales, :x)) ||
+                      (:y in stat.in_vars && Scale.iscategorical(scales, :y))
+
         for var in stat.in_vars
             vals = getfield(aes, var)
-            if vals != nothing && !isa(vals, PooledDataArray)
-                categorical = false
-            end
-
             if vals != nothing
                 if minval == nothing
                     minval = first(vals)
@@ -470,8 +508,10 @@ function apply_statistic(stat::TickStatistic,
                 if maxval == nothing
                     maxval = first(vals)
                 end
+                T = promote_type(typeof(minval), typeof(maxval))
+                minval = convert(T, minval)
+                maxval = convert(T, maxval)
 
-                T = isempty(vals) ? eltype(vals) : typeof(first(vals))
                 if stat.out_var == "x"
                     dsize = aes.xsize === nothing ? [nothing] : aes.xsize
                 elseif stat.out_var == "y"
@@ -482,30 +522,7 @@ function apply_statistic(stat::TickStatistic,
 
                 size = aes.size === nothing ? [nothing] : aes.size
 
-                for (val, s, ds) in zip(vals, cycle(size), cycle(dsize))
-                    if !Gadfly.isconcrete(val)
-                        continue
-                    end
-
-                    if val < minval || !isfinite(minval)
-                        minval = val
-                    end
-
-                    if val > maxval || !isfinite(maxval)
-                        maxval = val
-                    end
-
-                    if s != nothing
-                        minval = min(minval, val - s)
-                        maxval = max(maxval, val + s)
-                    end
-
-                    if ds != nothing
-                        minval = min(minval, val - ds)
-                        maxval = max(maxval, val + ds)
-                    end
-                end
-
+                minval, maxval = apply_statistic_typed(minval, maxval, vals, size, dsize)
                 push!(in_values, vals)
             end
         end
@@ -522,7 +539,6 @@ function apply_statistic(stat::TickStatistic,
         maxval = Gadfly.concrete_maximum(in_values)
         categorical = true
     end
-
 
     # consider forced tick marks
     if stat.ticks != nothing
@@ -640,6 +656,63 @@ function apply_statistic(stat::TickStatistic,
     end
 
     nothing
+end
+
+function apply_statistic_typed(minval, maxval, vals, size, dsize)
+#     for (val, s, ds) in zip(vals, cycle(size), cycle(dsize))
+    lensize  = length(size)
+    lendsize = length(dsize)
+    for (i, val) in enumerate(vals)
+        if !Gadfly.isconcrete(val) || !isfinite(val)
+            continue
+        end
+
+        s = size[mod1(i, lensize)]
+        ds = dsize[mod1(i, lendsize)]
+
+        minval, maxval = minvalmaxval(minval, maxval, val, s, ds)
+    end
+    minval, maxval
+end
+
+function apply_statistic_typed{T}(minval, maxval, vals::DataArray{T}, size, dsize)
+#     for (val, s, ds) in zip(vals, cycle(size), cycle(dsize))
+    lensize  = length(size)
+    lendsize = length(dsize)
+    for i = 1:length(vals)
+        if vals.na[i]
+            continue
+        end
+
+        val::T = vals.data[i]
+        s = size[mod1(i, lensize)]
+        ds = dsize[mod1(i, lendsize)]
+
+        minval, maxval = minvalmaxval(minval, maxval, val, s, ds)
+    end
+    minval, maxval
+end
+
+function minvalmaxval{T}(minval::T, maxval::T, val, s, ds)
+    if val < minval || !isfinite(minval)
+        minval = val
+    end
+
+    if val > maxval || !isfinite(maxval)
+        maxval = val
+    end
+
+    if s != nothing
+        minval = min(minval, val - s)::T
+        maxval = max(maxval, val + s)::T
+    end
+
+    if ds != nothing
+        minval = min(minval, val - ds)::T
+        maxval = max(maxval, val + ds)::T
+    end
+
+    minval, maxval
 end
 
 immutable BoxplotStatistic <: Gadfly.StatisticElement
@@ -1005,9 +1078,12 @@ function apply_statistic(stat::FunctionStatistic,
     if aes.color != nothing
         func_color = aes.color
         aes.color = DataArray(eltype(aes.color), length(aes.func) * stat.num_samples)
+        groups = DataArray(Int, length(aes.func) * stat.num_samples)
         for i in 1:length(aes.func)
             aes.color[1+(i-1)*stat.num_samples:i*stat.num_samples] = func_color[i]
+            groups[1+(i-1)*stat.num_samples:i*stat.num_samples] = i
         end
+        aes.group = PooledDataArray(groups)
     elseif length(aes.func) > 1 && haskey(scales, :color)
         data = Gadfly.Data()
         data.color = Array(String, length(aes.func) * stat.num_samples)
@@ -1062,16 +1138,22 @@ function apply_statistic(stat::ContourStatistic,
     levels = Float64[]
     contour_xs = eltype(xs)[]
     contour_ys = eltype(ys)[]
+
+    groups = PooledDataArray(Int[])
+    group = 0
     for contour in Contour.contours(xs, ys, zs, stat.n)
         for curve in contour.lines
             for v in curve.vertices
                 push!(contour_xs, v[1])
                 push!(contour_ys, v[2])
                 push!(levels, contour.level)
+                push!(groups, group)
             end
+            group += 1
         end
     end
 
+    aes.group = groups
     color_scale = get(scales, :color, Gadfly.Scale.continuous_color_gradient())
     Scale.apply_scale(color_scale, [aes], Gadfly.Data(color=levels))
     Scale.apply_scale(scales[:x], [aes],  Gadfly.Data(x=contour_xs))
