@@ -39,7 +39,7 @@ end
 
 
 function default_statistic(geom::BarGeometry)
-    geom.default_statistic
+    return geom.default_statistic
 end
 
 
@@ -242,7 +242,7 @@ function render(geom::BarGeometry, theme::Gadfly.Theme, aes::Gadfly.Aesthetics,
         T = eltype(values)
 
         span = zero(T)
-        unique_count = length(set(values))
+        unique_count = length(Set(values))
         if unique_count > 1
             span = (maximum(values) - minimum(values)) / (unique_count - 1)
         end

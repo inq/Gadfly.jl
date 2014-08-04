@@ -1,14 +1,4 @@
 
-# Work around differences in julia 0.2 and 0.3 set constructors.
-function set(T::Type, itr)
-    S = Set{T}()
-    union!(S, itr)
-end
-
-function set(itr)
-    set(Any, itr)
-end
-
 
 # Is this usable data?
 function isconcrete{T<:Number}(x::T)
@@ -97,6 +87,10 @@ end
 
 
 function concrete_minmax{T<:Real}(xs, xmin::T, xmax::T)
+    if eltype(xs) <: Base.Callable
+        return xmin, xmax
+    end
+
     for x in xs
         if isconcrete(x)
             xT = convert(T, x)

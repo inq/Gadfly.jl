@@ -1,15 +1,3 @@
-
-require("Codecs")
-require("Compose")
-require("DataFrames")
-require("DataArrays")
-require("DataStructures")
-require("Datetime")
-require("Distributions")
-require("Iterators")
-require("JSON")
-require("Loess")
-
 module Gadfly
 
 using Codecs
@@ -40,23 +28,13 @@ export SVGJS, SVG, PGF, PNG, PS, PDF, draw, inch, mm, cm, px, pt, color, vstack,
 Compose.xmlns["gadfly"] = "http://www.gadflyjl.org/ns"
 
 
-# Backwards compatibility with julia-0.2 names
-if !isdefined(:rad2deg)
-    const rad2deg = radians2degrees
-    const deg2rad = degrees2radians
-end
-
-if !isdefined(:setfield!)
-    const setfield! = setfield
-end
-
-
 typealias ColorOrNothing Union(ColorValue, Nothing)
 
 
 element_aesthetics(::Any) = []
 default_scales(::Any) = []
 default_statistic(::Any) = Stat.identity()
+element_coordinate_type(::Any) = Coord.cartesian
 
 
 abstract Element
@@ -178,14 +156,14 @@ type Plot
     data::Data
     scales::Vector{ScaleElement}
     statistics::Vector{StatisticElement}
-    coord::CoordinateElement
+    coord::Union(Nothing, CoordinateElement)
     guides::Vector{GuideElement}
     theme::Theme
     mapping::Dict
 
     function Plot()
         new(Layer[], nothing, Data(), ScaleElement[], StatisticElement[],
-            Coord.cartesian(), GuideElement[], default_theme)
+            nothing, GuideElement[], default_theme)
     end
 end
 
@@ -300,10 +278,11 @@ eval_plot_mapping(data::AbstractDataFrame, arg::String) = eval_plot_mapping(data
 eval_plot_mapping(data::AbstractDataFrame, arg::Integer) = data[arg]
 eval_plot_mapping(data::AbstractDataFrame, arg::Expr) = with(data, arg)
 eval_plot_mapping(data::AbstractDataFrame, arg::AbstractArray) = arg
+eval_plot_mapping(data::AbstractDataFrame, arg::Function) = arg
 
 # Acceptable types of values that can be bound to aesthetics.
 typealias AestheticValue Union(Nothing, Symbol, String, Integer, Expr,
-                               AbstractArray)
+                               AbstractArray, Function)
 
 
 # Create a new plot.
@@ -433,6 +412,17 @@ function render(plot::Plot)
         end
     end
 
+    # Figure out the coordinates
+    coord = plot.coord
+    for layer in plot.layers
+        coord_type = element_coordinate_type(layer.geom)
+        if coord === nothing
+            coord = coord_type()
+        elseif typeof(coord) != coord_type
+            error("Plot uses multiple coordinates: $(typeof(coord)) and $(coord_type)")
+        end
+    end
+
     # Add default statistics for geometries.
     layer_stats = Array(StatisticElement, length(plot.layers))
     for (i, layer) in enumerate(plot.layers)
@@ -449,7 +439,7 @@ function render(plot::Plot)
         union!(used_aesthetics, element_aesthetics(stat))
     end
 
-    mapped_aesthetics = set(keys(plot.mapping))
+    mapped_aesthetics = Set(keys(plot.mapping))
     for layer in plot.layers
         union!(mapped_aesthetics, keys(layer.mapping))
     end
@@ -482,7 +472,7 @@ function render(plot::Plot)
         for scale in default_scales(stat)
             # Use the statistics default scale only when it covers some
             # aesthetic that is not already scaled.
-            scale_aes = set(element_aesthetics(scale))
+            scale_aes = Set(element_aesthetics(scale))
             if !isempty(intersect(scale_aes, unscaled_aesthetics))
                 for var in scale_aes
                     scales[var] = scale
@@ -520,7 +510,7 @@ function render(plot::Plot)
 
         if haskey(default_aes_scales[t], var)
             scale = default_aes_scales[t][var]
-            scale_aes = set(element_aesthetics(scale))
+            scale_aes = Set(element_aesthetics(scale))
             for var in scale_aes
                 scales[var] = scale
             end
@@ -543,7 +533,7 @@ function render(plot::Plot)
 
         if haskey(default_aes_scales[t], var)
             scale = default_aes_scales[t][var]
-            scale_aes = set(element_aesthetics(scale))
+            scale_aes = Set(element_aesthetics(scale))
             for var in scale_aes
                 scales[var] = scale
             end
@@ -655,13 +645,13 @@ function render(plot::Plot)
 
     # IIa. Layer-wise statistics
     for (layer_stat, aes) in zip(layer_stats, layer_aess)
-        Stat.apply_statistics(StatisticElement[layer_stat], scales, plot.coord, aes)
+        Stat.apply_statistics(StatisticElement[layer_stat], scales, coord, aes)
     end
 
     # IIb. Plot-wise Statistics
     plot_aes = cat(layer_aess...)
     statistics = collect(statistics)
-    Stat.apply_statistics(statistics, scales, plot.coord, plot_aes)
+    Stat.apply_statistics(statistics, scales, coord, plot_aes)
 
     # Add some default guides determined by defined aesthetics
     if !all([aes.color === nothing for aes in [plot_aes, layer_aess...]]) &&
@@ -670,8 +660,8 @@ function render(plot::Plot)
         push!(guides, Guide.colorkey())
     end
 
-    root_context = render_prepared(plot, plot_aes, layer_aess, layer_stats, scales,
-                                   statistics, guides)
+    root_context = render_prepared(plot, coord, plot_aes, layer_aess,
+                                   layer_stats, scales, guides)
 
     return pad_inner(root_context, 5mm)
 end
@@ -700,15 +690,15 @@ end
 #   A Compose context containing the rendered plot.
 #
 function render_prepared(plot::Plot,
+                         coord::CoordinateElement,
                          plot_aes::Aesthetics,
                          layer_aess::Vector{Aesthetics},
                          layer_stats::Vector{StatisticElement},
                          scales::Dict{Symbol, ScaleElement},
-                         statistics::Vector{StatisticElement},
                          guides::Vector{GuideElement};
                          table_only=false)
     # III. Coordinates
-    plot_context = Coord.apply_coordinate(plot.coord, vcat(plot_aes,
+    plot_context = Coord.apply_coordinate(coord, vcat(plot_aes,
                                           layer_aess), scales)
 
     # IV. Geometries
@@ -728,7 +718,7 @@ function render_prepared(plot::Plot,
         end
     end
 
-    tbl = Guide.layout_guides(plot_context, plot.coord,
+    tbl = Guide.layout_guides(plot_context, coord,
                               plot.theme, guide_contexts...)
     if table_only
         return tbl
@@ -822,66 +812,23 @@ function default_mime()
     end
 end
 
+import Base.Multimedia: @try_display, xdisplayable
+import Base.REPL: REPLDisplay
 
-if isdefined(Base, :REPL)
-    import Base.Multimedia: @try_display, xdisplayable
-    const REPLDisplay = Base.REPL.REPLDisplay
-
-    function display(p::Plot)
-        displays = Base.Multimedia.displays
-        for i = length(displays):-1:1
-            m = default_mime()
-
-            if xdisplayable(displays[i], m, p)
-                try
-                    return display(displays[i], m, p)
-                catch e
-                    isa(e, MethodError) && e.f in (display, redisplay, writemime) ||
-                        rethrow()
-                end
-            end
-
-            if xdisplayable(displays[i], p)
-                try
-                    return display(displays[i], p)
-                catch e
-                    isa(e, MethodError) && e.f in (display, redisplay, writemime) ||
-                        rethrow()
-                end
-            end
-        end
-        invoke(display,(Any,),p)
-    end
-else
-    # julia 0.2 fallback
-    const REPLDisplay = TextDisplay
-
-    function display(d::TextDisplay, p::Plot)
+function display(p::Plot)
+    displays = Base.Multimedia.displays
+    for i = length(displays):-1:1
         m = default_mime()
-        display(d, m, p)
+        if xdisplayable(displays[i], m, p)
+             @try_display return display(displays[i], m, p)
+        end
+
+        if xdisplayable(displays[i], p)
+            @try_display return display(displays[i], p)
+        end
     end
+    invoke(display,(Any,),p)
 end
-
-
-# TODO: Replace the above block with this as soon as we drop 0.2 support.
-
-#import Base.Multimedia: @try_display, xdisplayable
-#import Base.REPL: REPLDisplay
-
-#function display(p::Plot)
-    #displays = Base.Multimedia.displays
-    #for i = length(displays):-1:1
-        #m = default_mime()
-        #if xdisplayable(displays[i], m, p)
-             #@try_display return display(displays[i], m, p)
-        #end
-
-        #if xdisplayable(displays[i], p)
-            #@try_display return display(displays[i], p)
-        #end
-    #end
-    #invoke(display,(Any,),p)
-#end
 
 
 function open_file(filename)
@@ -971,7 +918,8 @@ include("statistics.jl")
 # The default depends on whether the input is discrete or continuous (i.e.,
 # PooledDataVector or DataVector, respectively).
 const default_aes_scales = {
-        :functional => {:func => Scale.func()},
+        :functional => {:z => Scale.z_func(),
+                        :y => Scale.y_func()},
         :numerical => {:x           => Scale.x_continuous(),
                        :xmin        => Scale.x_continuous(),
                        :xmax        => Scale.x_continuous(),
@@ -1017,6 +965,10 @@ function classify_data{N, T <: CategoricalType}(data::AbstractArray{T, N})
 end
 
 function classify_data{N, T <: Base.Callable}(data::AbstractArray{T, N})
+    :functional
+end
+
+function classify_data{T <: Base.Callable}(data::T)
     :functional
 end
 

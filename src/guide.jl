@@ -667,10 +667,10 @@ function render(guide::XTicks, theme::Gadfly.Theme,
         return compose!(context(), static_labels, dynamic_labels)
 
     end
-    vpenalty = 1mm # don't be too eager to flip the x-axis labels
+    vpenalty = 3
     vlayout_context = compose!(context(minwidth=sum(label_heights[tickvisibility]),
-                                       minheight=vpenalty + maximum(label_widths[tickvisibility])),
-                               vlayout)
+                                       minheight=maximum(label_widths[tickvisibility]),
+                                       penalty=vpenalty), vlayout)
 
     if guide.orientation == :horizontal
         contexts = [hlayout_context]
@@ -799,9 +799,11 @@ function render(guide::YTicks, theme::Gadfly.Theme,
 
         return compose!(context(), static_labels, dynamic_labels)
     end
-    hlayout_context = compose!(context(minwidth=maximum(label_widths[tickvisibility]),
-                                       minheight=sum(label_heights[tickvisibility])),
-                               hlayout)
+    hpenalty = 3
+    hlayout_context =
+        compose!(context(minwidth=maximum(label_widths[tickvisibility]),
+                         minheight=sum(label_heights[tickvisibility]),
+                         penalty=hpenalty), hlayout)
 
     vlayout = ctxpromise() do draw_context
         static_grid_lines = compose!(
@@ -831,9 +833,9 @@ function render(guide::YTicks, theme::Gadfly.Theme,
         return compose!(contetx(), static_grid_lines, dynamic_grid_lines)
     end
     vlayout_context =
-    compose!(context(minwidth=maximum(label_heights[tickvisibility]),
-                     minheight=sum(label_widths[tickvisibility])),
-             vlayout)
+        compose!(context(minwidth=maximum(label_heights[tickvisibility]),
+                         minheight=sum(label_widths[tickvisibility])),
+                 vlayout)
 
     if guide.orientation == :horizontal
         contexts = [hlayout_context]
@@ -896,9 +898,11 @@ function render(guide::XLabel, theme::Gadfly.Theme,
                         font(theme.major_label_font),
                         fontsize(theme.major_label_font_size))
     end
+    vpenalty = 3
     vlayout_context = compose!(context(minwidth=text_height + 2padding,
-                                       minheight=text_width + 2padding),
-                              vlayout)
+                                       minheight=text_width + 2padding,
+                                       penalty=3),
+                               vlayout)
 
     if guide.orientation == :horizontal
         contexts = [hlayout_context]
@@ -1044,10 +1048,12 @@ function layout_guides(plot_context::Context,
     # Populate the table
 
     aspect_ratio = nothing
-    if coord.fixed
-        aspect_ratio = abs(plot_context.units.width / plot_context.units.height)
-    elseif coord.aspect_ratio != nothing
-        aspect_ratio = coord.aspect_ratio
+    if isa(coord, Gadfly.Coord.cartesian)
+        if coord.fixed
+            aspect_ratio = abs(plot_context.units.width / plot_context.units.height)
+        elseif coord.aspect_ratio != nothing
+            aspect_ratio = coord.aspect_ratio
+        end
     end
     tbl = table(m, n, focus_y:focus_y, focus_x:focus_x, units=plot_units,
                 aspect_ratio=aspect_ratio)
@@ -1102,7 +1108,7 @@ function layout_guides(plot_context::Context,
         [compose!(context(minwidth=minwidth(plot_context),
                           minheight=minheight(plot_context),
                           units=plot_units,
-                          clip=true),
+                          clip=false),
                   {context(order=-1),
                      [c for (c, o) in guides[under_guide_position]]...},
                   {context(order=1000),

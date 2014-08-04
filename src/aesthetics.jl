@@ -7,12 +7,13 @@ typealias CategoricalAesthetic
     Union(Nothing, PooledDataArray)
 
 typealias NumericalAesthetic
-    Union(Nothing, Vector, DataArray)
+    Union(Nothing, Matrix, Vector, DataArray)
 
 
 @varset Aesthetics begin
     x,            NumericalOrCategoricalAesthetic
-    y,            NumericalOrCategoricalAesthetic
+    y,            Union(NumericalOrCategoricalAesthetic)
+    z,            Union(Nothing, Function, Matrix)
     size,         Maybe(Vector{Measure})
     color,        Maybe(AbstractDataVector{ColorValue})
     label,        CategoricalAesthetic
@@ -26,9 +27,6 @@ typealias NumericalAesthetic
     # hexagon sizes used for hexbin
     xsize,        NumericalAesthetic
     ysize,        NumericalAesthetic
-
-    # function plotting
-    func,         NumericalOrCategoricalAesthetic
 
     # fixed lines
     xintercept,   NumericalAesthetic
@@ -139,7 +137,7 @@ end
 #   vars: Symbol that must be defined in the aesthetics.
 #
 function undefined_aesthetics(aes::Aesthetics, vars::Symbol...)
-    setdiff(set(vars), defined_aesthetics(aes))
+    setdiff(Set(vars), defined_aesthetics(aes))
 end
 
 function assert_aesthetics_defined(who::String, aes::Aesthetics, vars::Symbol...)
@@ -247,17 +245,42 @@ function cat_aes_var!(a::Dict, b::Dict)
 end
 
 
-
-# work arround 0.2 weirdness
-function cat_aes_var!(a::DataArray, b::AbstractArray)
-    T = promote_type(eltype(a), eltype(b))
-    da = DataArray(T, length(a) + length(b))
-    copy!(da, [a..., b...])
-    return da
+function cat_aes_var!{T}(a::AbstractArray{T}, b::AbstractArray{T})
+    return append!(a, b)
 end
 
-function cat_aes_var!(a::AbstractArray, b::AbstractArray)
-    return append!(a, b)
+
+# Let arrays of numbers clobber arrays of functions. This is slightly odd
+# behavior, comes up with with function statistics applied on a layer-wise
+# basis.
+function cat_aes_var!{T <: Base.Callable, U}(a::AbstractArray{T}, b::AbstractArray{U})
+    return b
+end
+
+
+function cat_aes_var!{T, U <: Base.Callable}(a::AbstractArray{T}, b::AbstractArray{U})
+    return a
+end
+
+
+function cat_aes_var!{T, U}(a::AbstractArray{T}, b::AbstractArray{U})
+    V = promote_type(T, U)
+    if isa(a, DataArray) || isa(b, DataArray)
+        ab = DataArray(V, length(a) + length(b))
+    else
+        ab = Array(V, length(a), length(b))
+    end
+    i = 1
+    for x in a
+        ab[i] = x
+        i += 1
+    end
+    for x in b
+        ab[i] = x
+        i += 1
+    end
+
+    return ab
 end
 
 
@@ -267,7 +290,7 @@ end
 
 
 function cat_aes_var!{T}(xs::PooledDataVector{T}, ys::PooledDataVector{T})
-    newpool = T[x for x in union(set(xs.pool), set(ys.pool))]
+    newpool = T[x for x in union(Set(xs.pool), Set(ys.pool))]
     newdata = vcat(T[x for x in xs], T[y for y in ys])
     PooledDataArray(newdata, newpool, [false for _ in newdata])
 end

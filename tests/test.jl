@@ -2,9 +2,6 @@
 
 using RDatasets, Gadfly
 
-import StatsBase
-haskde = :kde in names(StatsBase)
-
 tests = [
     ("points",                                6inch, 3inch),
     ("colored_points",                        6inch, 3inch),
@@ -67,7 +64,9 @@ tests = [
     ("layer_leak",                            6inch, 3inch),
     ("hline_vline",                           6inch, 3inch),
     ("grid_strokedash",                       6inch, 3inch),
-    ("aspect_ratio",                          6inch, 3inch)
+    ("aspect_ratio",                          6inch, 3inch),
+    ("contour_function",                      6inch, 3inch),
+    ("contour_matrix",                        6inch, 3inch)
 ]
 
 
@@ -90,13 +89,6 @@ function run_tests(output_filename)
     end
 
     for (name, width, height) in tests
-        # 0.2 is currently in a weird state where kde is mid-migration and has
-        # just ceased to exist. Until I figure that out, I'm just going to
-        # disable density plots on 0.2. Sorry.
-        if !haskde && (name == "density" || name == "colorful_density")
-            continue
-        end
-
         if !in(name, whitelist)
             continue
         end
